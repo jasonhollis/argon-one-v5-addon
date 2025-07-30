@@ -1,0 +1,23 @@
+name: "Argon ONE V5 Fan Control"
+version: "0.6.0"
+slug: "argon_one_v5"
+description: "Fan and OLED control for Argon ONE V5 case"
+arch:
+  - aarch64
+startup: application
+boot: auto
+init: false
+devices:
+  - /dev/i2c-1
+  - /dev/gpiochip0
+  - /dev/gpiochip10
+  - /dev/gpiochip11
+  - /dev/gpiochip12
+  - /dev/gpiochip13
+gpio: true
+options:
+  temperature_unit: "C"
+  fan_mode: "auto"
+schema:
+  temperature_unit: list(C|F)
+  fan_mode: list(auto|manual|off)
