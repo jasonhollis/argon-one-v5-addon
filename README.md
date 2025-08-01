@@ -17,7 +17,7 @@ A Home Assistant add-on for the Argon ONE V5 Raspberry Pi 5 case, providing OLED
 
 1. In Home Assistant, navigate to **Settings** → **Add-ons** → **Add-on Store**
 2. Click the three dots menu → **Repositories**
-3. Add this repository URL: `https://github.com/YOUR_USERNAME/argon-one-v5-addon`
+3. Add this repository URL: `https://github.com/jasonhollis/argon-one-v5-addon`
 4. Find "Argon ONE V5" in the add-on store and click **Install**
 
 ### Method 2: Manual Installation
