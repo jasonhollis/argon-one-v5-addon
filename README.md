@@ -64,3 +64,30 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Based on the Argon40 official scripts
 - Built for Home Assistant OS
+
+## Version 2.0.0 Features
+
+- **Home Assistant Integration**: Uses System Monitor data for accurate stats
+- **Configurable Screens**: Choose which information screens to display
+- **Enhanced Display**:
+  - Progress bars for CPU, Memory, and Disk usage
+  - Network throughput monitoring
+  - Temperature-based fan status
+  - More accurate system metrics
+- **Customizable Duration**: Set how long each screen displays (5-60 seconds)
+
+### Configuration Options
+
+- `screen_duration`: Time in seconds for each screen (default: 10)
+- `screens`: List of screens to display:
+  - `system_overview`: CPU, Memory, Load
+  - `storage_info`: Disk usage and free space
+  - `network_stats`: Network throughput and traffic
+  - `temperatures`: Detailed temperature info
+
+### Requirements
+
+Ensure you have the System Monitor integration enabled in Home Assistant:
+1. Go to Settings → Devices & Services
+2. Add Integration → System Monitor
+3. Select the sensors you want to monitor

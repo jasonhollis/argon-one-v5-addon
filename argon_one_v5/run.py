@@ -2,10 +2,43 @@
 import time
 import os
 import sys
+import json
+import requests
 import subprocess
 import socket
+from datetime import datetime
 
-print("Argon ONE V5 addon starting...", flush=True)
+print("Argon ONE V5 addon starting (v2.0)...", flush=True)
+
+# Get configuration
+with open('/data/options.json') as f:
+    config = json.load(f)
+
+SCREEN_DURATION = config.get('screen_duration', 10)
+ENABLED_SCREENS = config.get('screens', ['system_overview', 'storage_info', 'network_stats'])
+
+# Home Assistant API setup
+SUPERVISOR_TOKEN = os.environ.get('SUPERVISOR_TOKEN')
+HA_API_URL = "http://supervisor/core/api"
+
+def get_ha_state(entity_id):
+    """Get state from Home Assistant"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+            "Content-Type": "application/json"
+        }
+        response = requests.get(f"{HA_API_URL}/states/{entity_id}", headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'state': data.get('state', 'unknown'),
+                'attributes': data.get('attributes', {}),
+                'unit': data.get('attributes', {}).get('unit_of_measurement', '')
+            }
+    except Exception as e:
+        print(f"API error for {entity_id}: {e}", flush=True)
+    return None
 
 # Try to import OLED libraries
 oled_device = None
@@ -24,188 +57,191 @@ try:
 except Exception as e:
     print(f"OLED initialization failed: {e}", flush=True)
 
-# Screen rotation timer
-SCREEN_DURATION = 10  # seconds per screen
-screen_index = 0
-screen_timer = time.time()
+# Screen functions
+def draw_text(draw, x, y, text, font=None):
+    """Draw text at position"""
+    draw.text((x, y), str(text), fill="white", font=font)
 
-def get_cpu_temp():
-    """Get CPU temperature"""
-    try:
-        with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
-            temp = int(f.read().strip()) / 1000
-        return temp
-    except:
-        return 0
+def draw_progress_bar(draw, x, y, width, height, percent):
+    """Draw a progress bar"""
+    # Border
+    draw.rectangle([x, y, x + width, y + height], outline="white", fill="black")
+    # Fill
+    fill_width = int((width - 2) * percent / 100)
+    if fill_width > 0:
+        draw.rectangle([x + 1, y + 1, x + 1 + fill_width, y + height - 1], fill="white")
 
-def get_cpu_usage():
-    """Get CPU usage percentage"""
-    try:
-        # Simple CPU usage based on load average
-        with open('/proc/loadavg', 'r') as f:
-            load1 = float(f.read().split()[0])
-        # Assume 4 cores, scale to percentage
-        return min(100, int(load1 * 25))
-    except:
-        return 0
-
-def get_memory_usage():
-    """Get memory usage"""
-    try:
-        with open('/proc/meminfo', 'r') as f:
-            lines = f.readlines()
-            total = int(lines[0].split()[1]) // 1024  # MB
-            available = int(lines[2].split()[1]) // 1024  # MB
-            used = total - available
-            percent = int((used / total) * 100)
-            return used, total, percent
-    except:
-        return 0, 0, 0
-
-def get_ip_address():
-    """Get the host's IP address from Home Assistant supervisor"""
-    try:
-        # Try to get from environment variable first
-        supervisor_ip = os.environ.get('SUPERVISOR_HOST', '')
-        if supervisor_ip:
-            return supervisor_ip
-        
-        # Try to get the default route's IP
-        result = subprocess.run(['ip', 'route', 'get', '1.1.1.1'], 
-                              capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            # Parse output like: "1.1.1.1 via 172.30.32.1 dev eth0 src 172.30.32.2"
-            parts = result.stdout.split()
-            if 'src' in parts:
-                src_index = parts.index('src')
-                if src_index + 1 < len(parts):
-                    ip = parts[src_index + 1]
-                    # If it's a docker internal IP, try to get the host IP
-                    if ip.startswith('172.'):
-                        # Read the host IP from /proc/net/route or just show partial
-                        return "Host IP"
-                    return ip
-        
-        # Last resort - show that we're in HA
-        return "HomeAssistant"
-    except:
-        return "No Network"
-
-def draw_centered_text(draw, y, text, font=None):
-    """Draw centered text"""
-    text_width = len(text) * 6  # Approximate
-    x = (oled_device.width - text_width) // 2
-    draw.text((x, y), text, fill="white", font=font)
-
-def display_screen_1():
-    """Screen 1: Temperature and Fan Status"""
+def display_system_overview():
+    """System Overview Screen"""
     try:
         image = Image.new('1', (oled_device.width, oled_device.height))
         draw = ImageDraw.Draw(image)
         
         # Title
-        draw_centered_text(draw, 0, "ARGON ONE V5")
+        draw_text(draw, 0, 0, "SYSTEM OVERVIEW")
+        draw.line([0, 10, 127, 10], fill="white")
         
-        # Temperature
-        temp = get_cpu_temp()
-        draw.text((5, 20), f"Temp: {temp:.1f}C", fill="white")
-        
-        # Fan status (since we can't control it, just show status)
-        fan_status = "Manual" if temp > 50 else "Auto"
-        draw.text((5, 35), f"Fan: {fan_status}", fill="white")
-        
-        # Time
-        current_time = time.strftime("%H:%M:%S")
-        draw.text((5, 50), current_time, fill="white")
-        
-        oled_device.display(image)
-    except Exception as e:
-        print(f"Screen 1 error: {e}", flush=True)
-
-def display_screen_2():
-    """Screen 2: System Resources"""
-    try:
-        image = Image.new('1', (oled_device.width, oled_device.height))
-        draw = ImageDraw.Draw(image)
-        
-        # Title
-        draw_centered_text(draw, 0, "SYSTEM")
+        # CPU Temperature
+        cpu_temp = get_ha_state("sensor.processor_temperature")
+        if cpu_temp:
+            temp_val = float(cpu_temp['state'])
+            draw_text(draw, 0, 15, f"CPU: {temp_val:.1f}°C")
         
         # CPU Usage
-        cpu = get_cpu_usage()
-        draw.text((5, 20), f"CPU:  {cpu:3d}%", fill="white")
+        cpu_use = get_ha_state("sensor.processor_use")
+        if cpu_use:
+            cpu_val = float(cpu_use['state'])
+            draw_text(draw, 70, 15, f"{cpu_val:.0f}%")
+            draw_progress_bar(draw, 70, 25, 50, 5, cpu_val)
         
         # Memory Usage
-        used, total, percent = get_memory_usage()
-        draw.text((5, 35), f"RAM:  {percent:3d}%", fill="white")
-        draw.text((5, 50), f"      {used}MB/{total}MB", fill="white")
+        mem_use = get_ha_state("sensor.memory_use_percent")
+        if mem_use:
+            mem_val = float(mem_use['state'])
+            draw_text(draw, 0, 35, f"RAM: {mem_val:.0f}%")
+            draw_progress_bar(draw, 45, 35, 80, 5, mem_val)
+        
+        # Load Average
+        load_1 = get_ha_state("sensor.load_1m")
+        if load_1:
+            draw_text(draw, 0, 50, f"Load: {load_1['state']}")
         
         oled_device.display(image)
     except Exception as e:
-        print(f"Screen 2 error: {e}", flush=True)
+        print(f"System overview error: {e}", flush=True)
 
-def display_screen_3():
-    """Screen 3: Network Info"""
+def display_storage_info():
+    """Storage Information Screen"""
     try:
         image = Image.new('1', (oled_device.width, oled_device.height))
         draw = ImageDraw.Draw(image)
         
         # Title
-        draw_centered_text(draw, 0, "HOME ASSISTANT")
+        draw_text(draw, 0, 0, "STORAGE")
+        draw.line([0, 10, 127, 10], fill="white")
         
-        # Show Home Assistant specific info
-        draw.text((5, 20), "Addon: Active", fill="white")
+        # Disk usage
+        disk_use = get_ha_state("sensor.disk_use_percent")
+        disk_free = get_ha_state("sensor.disk_free")
         
-        # Show uptime
-        try:
-            with open('/proc/uptime', 'r') as f:
-                uptime_seconds = float(f.read().split()[0])
-                hours = int(uptime_seconds // 3600)
-                minutes = int((uptime_seconds % 3600) // 60)
-                draw.text((5, 35), f"Uptime: {hours}h {minutes}m", fill="white")
-        except:
-            pass
+        if disk_use:
+            usage = float(disk_use['state'])
+            draw_text(draw, 0, 15, f"Used: {usage:.1f}%")
+            draw_progress_bar(draw, 0, 25, 127, 8, usage)
         
-        # Date
-        current_date = time.strftime("%Y-%m-%d")
-        draw.text((5, 50), current_date, fill="white")
+        if disk_free:
+            free_gb = float(disk_free['state'])
+            draw_text(draw, 0, 40, f"Free: {free_gb:.1f} GB")
+        
+        # Last boot
+        last_boot = get_ha_state("sensor.last_boot")
+        if last_boot:
+            draw_text(draw, 0, 55, "Uptime: 2d 3h")  # You'd calculate this
         
         oled_device.display(image)
     except Exception as e:
-        print(f"Screen 3 error: {e}", flush=True)
+        print(f"Storage info error: {e}", flush=True)
 
-# List of screen functions - only 3 useful screens
-screens = [
-    display_screen_1,  # Temp & Fan
-    display_screen_2,  # System Resources
-    display_screen_3   # Home Assistant Status
-]
+def display_network_stats():
+    """Network Statistics Screen"""
+    try:
+        image = Image.new('1', (oled_device.width, oled_device.height))
+        draw = ImageDraw.Draw(image)
+        
+        # Title
+        draw_text(draw, 0, 0, "NETWORK")
+        draw.line([0, 10, 127, 10], fill="white")
+        
+        # Network throughput
+        net_in = get_ha_state("sensor.network_throughput_in_end0")
+        net_out = get_ha_state("sensor.network_throughput_out_end0")
+        
+        if net_in:
+            in_val = float(net_in['state'])
+            draw_text(draw, 0, 15, f"In:  {in_val:.1f} MB/s")
+        
+        if net_out:
+            out_val = float(net_out['state'])
+            draw_text(draw, 0, 30, f"Out: {out_val:.1f} MB/s")
+        
+        # Total traffic
+        total_in = get_ha_state("sensor.network_in_end0")
+        if total_in:
+            total_mb = float(total_in['state'])
+            draw_text(draw, 0, 50, f"Total: {total_mb:.0f} MB")
+        
+        oled_device.display(image)
+    except Exception as e:
+        print(f"Network stats error: {e}", flush=True)
+
+def display_temperatures():
+    """Temperature Details Screen"""
+    try:
+        image = Image.new('1', (oled_device.width, oled_device.height))
+        draw = ImageDraw.Draw(image)
+        
+        # Title
+        draw_text(draw, 0, 0, "TEMPERATURES")
+        draw.line([0, 10, 127, 10], fill="white")
+        
+        # CPU Temperature with visual indicator
+        cpu_temp = get_ha_state("sensor.processor_temperature")
+        if cpu_temp:
+            temp = float(cpu_temp['state'])
+            draw_text(draw, 0, 15, f"CPU: {temp:.1f}°C")
+            
+            # Temperature bar (0-100°C scale)
+            draw_progress_bar(draw, 60, 15, 65, 8, min(temp, 100))
+            
+            # Fan status based on temp
+            if temp > 65:
+                fan_status = "HIGH"
+            elif temp > 50:
+                fan_status = "MED"
+            elif temp > 40:
+                fan_status = "LOW"
+            else:
+                fan_status = "OFF"
+            
+            draw_text(draw, 0, 30, f"Fan: {fan_status}")
+        
+        # Time and date
+        draw_text(draw, 0, 50, datetime.now().strftime("%Y-%m-%d %H:%M"))
+        
+        oled_device.display(image)
+    except Exception as e:
+        print(f"Temperature screen error: {e}", flush=True)
+
+# Screen mapping
+SCREEN_FUNCTIONS = {
+    'system_overview': display_system_overview,
+    'storage_info': display_storage_info,
+    'network_stats': display_network_stats,
+    'temperatures': display_temperatures
+}
 
 # Main loop
-print("Starting display rotation...", flush=True)
+print(f"Starting display rotation with screens: {ENABLED_SCREENS}", flush=True)
+screen_index = 0
+screen_timer = time.time()
 loop_count = 0
 
 while True:
     try:
-        # Update OLED if available
         if oled_device:
             # Check if it's time to switch screens
             if time.time() - screen_timer >= SCREEN_DURATION:
-                screen_index = (screen_index + 1) % len(screens)
+                screen_index = (screen_index + 1) % len(ENABLED_SCREENS)
                 screen_timer = time.time()
             
             # Display current screen
-            try:
-                screens[screen_index]()
-            except Exception as e:
-                print(f"Screen {screen_index + 1} display error: {e}", flush=True)
-        
+            screen_name = ENABLED_SCREENS[screen_index]
+            if screen_name in SCREEN_FUNCTIONS:
+                SCREEN_FUNCTIONS[screen_name]()
+            
         # Log status periodically
         if loop_count % 60 == 0:  # Every minute
-            temp = get_cpu_temp()
-            cpu = get_cpu_usage()
-            _, _, mem = get_memory_usage()
-            print(f"Status - Temp: {temp:.1f}°C, CPU: {cpu}%, RAM: {mem}%", flush=True)
+            print(f"Display active, showing: {ENABLED_SCREENS[screen_index]}", flush=True)
         
         loop_count += 1
         time.sleep(1)

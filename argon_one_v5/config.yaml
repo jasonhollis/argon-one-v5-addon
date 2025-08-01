@@ -1,23 +1,23 @@
 name: "Argon ONE V5 Fan Control"
-version: "0.6.0"
+description: "Fan and OLED control for Argon ONE V5 case with System Monitor integration"
+version: "2.0.0"
 slug: "argon_one_v5"
-description: "Fan and OLED control for Argon ONE V5 case"
+init: false
 arch:
   - aarch64
 startup: application
 boot: auto
-init: false
 devices:
   - /dev/i2c-1
-  - /dev/gpiochip0
-  - /dev/gpiochip10
-  - /dev/gpiochip11
-  - /dev/gpiochip12
-  - /dev/gpiochip13
-gpio: true
+homeassistant_api: true
 options:
-  temperature_unit: "C"
-  fan_mode: "auto"
+  screen_duration: 10
+  screens:
+    - "system_overview"
+    - "storage_info"
+    - "network_stats"
+    - "temperatures"
 schema:
-  temperature_unit: list(C|F)
-  fan_mode: list(auto|manual|off)
+  screen_duration: "int(5,60)"
+  screens:
+    - "list(system_overview|storage_info|network_stats|temperatures|memory_detail|cpu_detail)"
