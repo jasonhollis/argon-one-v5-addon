@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+import time
+import os
+import sys
+import json
+from datetime import datetime
+import pytz
+
+print("Argon ONE V5 addon starting (v3.4)...", flush=True)
+
+# Set timezone
+TIMEZONE = pytz.timezone('Australia/Melbourne')
+
+# Get configuration
+try:
+    with open('/data/options.json') as f:
+        config = json.load(f)
+except:
+    config = {}
+
+SCREEN_DURATION = config.get('screen_duration', 10)
+
+# System readers
+def get_cpu_temp():
+    """Get CPU temperature"""
+    try:
+        with open('/sys/class/thermal/thermal_zone0/temp', 'r') as f:
+            temp = int(f.read().strip()) / 1000
+        return f"{temp:.1f}°C"
+    except:
+        return "N/A"
+
+def get_cpu_usage():
+    """Get CPU usage from load average"""
+    try:
+        with open('/proc/loadavg', 'r') as f:
+            load1 = float(f.read().split()[0])
+        cpu_percent = min(100, int(load1 * 25))  # Assume 4 cores
+        return cpu_percent
+    except:
+        return 0
+
+def get_memory_info():
+    """Get memory usage"""
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            lines = f.readlines()
+            total = int(lines[0].split()[1]) // 1024  # MB
+            available = int(lines[2].split()[1]) // 1024  # MB
+            used = total - available
+            percent = int((used / total) * 100)
+            return percent, f"{used}/{total}MB"
+    except:
+        return 0, "N/A"
+
+def get_disk_usage():
+    """Get disk usage"""
+    try:
+        stat = os.statvfs('/')
+        total = (stat.f_blocks * stat.f_frsize) // (1024**3)  # GB
+        free = (stat.f_bavail * stat.f_frsize) // (1024**3)   # GB
+        used = total - free
+        percent = int((used / total) * 100)
+        return percent, f"{free}GB"
+    except:
+        return 0, "N/A"
+
+def get_uptime():
+    """Get system uptime"""
+    try:
+        with open('/proc/uptime', 'r') as f:
+            uptime_seconds = float(f.read().split()[0])
+            days = int(uptime_seconds // 86400)
+            hours = int((uptime_seconds % 86400) // 3600)
+            if days > 0:
+                return f"{days}d {hours}h"
+            else:
+                minutes = int((uptime_seconds % 3600) // 60)
+                return f"{hours}h {minutes}m"
+    except:
+        return "N/A"
+
+# Try to import OLED libraries
+oled_device = None
+try:
+    from luma.core.interface.serial import i2c
+    from luma.oled.device import ssd1306
+    from PIL import Image, ImageDraw, ImageFont
+    
+    print("OLED libraries loaded successfully", flush=True)
+    
+    # Initialize OLED
+    serial = i2c(port=1, address=0x3C)
+    oled_device = ssd1306(serial)
+    print(f"OLED initialized: {oled_device.width}x{oled_device.height}", flush=True)
+    
+except Exception as e:
+    print(f"OLED initialization failed: {e}", flush=True)
+    sys.exit(1)
+
+def draw_progress_bar(draw, x, y, width, height, percent):
+    """Draw a progress bar with correct fill"""
+    # Draw border
+    draw.rectangle((x, y, x + width, y + height), outline=1, fill=0)
+    
+    # Calculate fill width correctly
+    percent = max(0, min(100, percent))
+    inner_width = width - 2
+    fill_width = int(inner_width * percent / 100)
+    
+    # Draw fill if there's something to show
+    if fill_width > 0:
+        draw.rectangle((x + 1, y + 1, x + fill_width, y + height - 1), fill=1)
+
+def display_system_screen():
+    """Display system information"""
+    if not oled_device:
+        return
+    
+    try:
+        image = Image.new('1', (128, 64), 0)
+        draw = ImageDraw.Draw(image)
+        
+        # Title
+        draw.text((0, 0), "SYSTEM", fill=1)
+        draw.line([(0, 10), (127, 10)], fill=1)
+        
+        # CPU temp
+        temp = get_cpu_temp()
+        draw.text((0, 15), f"CPU Temp: {temp}", fill=1)
+        
+        # CPU load with bar
+        cpu = get_cpu_usage()
+        draw.text((0, 27), f"CPU Load: {cpu}%", fill=1)
+        draw_progress_bar(draw, 70, 27, 55, 5, cpu)
+        
+        # Memory with bar
+        mem_percent, mem_usage = get_memory_info()
+        draw.text((0, 39), f"RAM: {mem_percent}%", fill=1)
+        draw_progress_bar(draw, 70, 39, 55, 5, mem_percent)
+        
+        # Time at bottom
+        mel_time = datetime.now(TIMEZONE)
+        draw.text((0, 54), mel_time.strftime("%H:%M"), fill=1)
+        draw.text((70, 54), mel_time.strftime("%d/%m"), fill=1)
+        
+        oled_device.display(image)
+        
+    except Exception as e:
+        print(f"System screen error: {e}", flush=True)
+
+def display_storage_screen():
+    """Display storage information"""
+    if not oled_device:
+        return
+    
+    try:
+        image = Image.new('1', (128, 64), 0)
+        draw = ImageDraw.Draw(image)
+        
+        # Title
+        draw.text((0, 0), "STORAGE", fill=1)
+        draw.line([(0, 10), (127, 10)], fill=1)
+        
+        # Disk usage with corrected bar
+        disk_percent, disk_free = get_disk_usage()
+        draw.text((0, 15), f"Disk Usage: {disk_percent}%", fill=1)
+        draw_progress_bar(draw, 0, 25, 125, 6, disk_percent)
+        
+        draw.text((0, 35), f"Free Space: {disk_free}", fill=1)
+        
+        # Uptime
+        uptime = get_uptime()
+        draw.text((0, 47), f"Uptime: {uptime}", fill=1)
+        
+        # Time at bottom
+        mel_time = datetime.now(TIMEZONE)
+        draw.text((0, 54), mel_time.strftime("%H:%M"), fill=1)
+        draw.text((70, 54), mel_time.strftime("%d/%m"), fill=1)
+        
+        oled_device.display(image)
+        
+    except Exception as e:
+        print(f"Storage screen error: {e}", flush=True)
+
+def display_info_screen():
+    """Display general info"""
+    if not oled_device:
+        return
+    
+    try:
+        image = Image.new('1', (128, 64), 0)
+        draw = ImageDraw.Draw(image)
+        
+        # Title
+        draw.text((0, 0), "ARGON ONE V5", fill=1)
+        draw.line([(0, 10), (127, 10)], fill=1)
+        
+        # Hostname
+        try:
+            hostname = os.uname().nodename
+            draw.text((0, 15), f"Host: {hostname[:15]}", fill=1)
+        except:
+            draw.text((0, 15), "Host: Unknown", fill=1)
+        
+        # Temperature
+        temp = get_cpu_temp()
+        draw.text((0, 27), f"Temp: {temp}", fill=1)
+        
+        # Fan status based on temp
+        try:
+            temp_val = float(temp.rstrip('°C'))
+            if temp_val > 65:
+                fan_status = "Fan: HIGH"
+            elif temp_val > 50:
+                fan_status = "Fan: MEDIUM"
+            elif temp_val > 40:
+                fan_status = "Fan: LOW"
+            else:
+                fan_status = "Fan: OFF"
+        except:
+            fan_status = "Fan: Unknown"
+        
+        draw.text((0, 39), fan_status, fill=1)
+        
+        # Date/time
+        mel_time = datetime.now(TIMEZONE)
+        draw.text((0, 51), mel_time.strftime("%H:%M"), fill=1)
+        draw.text((45, 51), mel_time.strftime("%a %d %b"), fill=1)
+        
+        oled_device.display(image)
+        
+    except Exception as e:
+        print(f"Info screen error: {e}", flush=True)
+
+# Screen list
+SCREENS = [
+    display_system_screen,
+    display_storage_screen,
+    display_info_screen
+]
+
+# Main loop
+print("Starting display loop...", flush=True)
+screen_index = 0
+screen_timer = time.time()
+loop_count = 0
+
+while True:
+    try:
+        if oled_device:
+            # Check if it's time to switch screens
+            if time.time() - screen_timer >= SCREEN_DURATION:
+                screen_index = (screen_index + 1) % len(SCREENS)
+                screen_timer = time.time()
+            
+            # Display current screen
+            SCREENS[screen_index]()
+        
+        # Log status periodically
+        if loop_count % 60 == 0:  # Every minute
+            mel_time = datetime.now(TIMEZONE)
+            temp = get_cpu_temp()
+            cpu = get_cpu_usage()
+            mem, _ = get_memory_info()
+            print(f"[{mel_time.strftime('%H:%M')}] Temp: {temp}, CPU: {cpu}%, RAM: {mem}%", flush=True)
+        
+        loop_count += 1
+        time.sleep(1)
+        
+    except Exception as e:
+        print(f"Error in main loop: {e}", flush=True)
+        time.sleep(5)

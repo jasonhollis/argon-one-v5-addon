@@ -1,0 +1,2 @@
+build_from:
+  aarch64: "alpine:3.22"

@@ -1,0 +1,40 @@
+name: "Argon ONE V5 Fan Control"
+description: "Fan and OLED control for Argon ONE V5 case"
+version: "3.5.0"
+slug: "argon_one_v5"
+init: false
+arch:
+  - aarch64
+startup: application
+boot: auto
+devices:
+  - /dev/i2c-1
+homeassistant_api: true
+options:
+  screen_duration: 10
+  screen1_name: "System"
+  screen1_line1: "sensor.processor_temperature|CPU Temp|{:.1f}°C"
+  screen1_line2: "sensor.processor_use_percent|CPU Load|{:.0f}%|bar"
+  screen1_line3: "sensor.memory_use_percent|Memory|{:.0f}%|bar"
+  screen2_name: "Storage"
+  screen2_line1: "sensor.disk_use_percent|Disk Usage|{:.0f}%|bar"
+  screen2_line2: "sensor.disk_free|Free Space|{:.1f} GB"
+  screen2_line3: "sensor.last_boot|Uptime|relative"
+  screen3_name: "Network"
+  screen3_line1: "sensor.network_throughput_in_end0|Download|{:.2f} MB/s"
+  screen3_line2: "sensor.network_throughput_out_end0|Upload|{:.2f} MB/s"
+  screen3_line3: ""
+schema:
+  screen_duration: "int(5,60)"
+  screen1_name: str?
+  screen1_line1: str?
+  screen1_line2: str?
+  screen1_line3: str?
+  screen2_name: str?
+  screen2_line1: str?
+  screen2_line2: str?
+  screen2_line3: str?
+  screen3_name: str?
+  screen3_line1: str?
+  screen3_line2: str?
+  screen3_line3: str?
